@@ -1,0 +1,10 @@
+[package]
+name = "stockcli"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+clap = { version = "4.0", features = ["derive"] }
+anyhow = "1.0"
+ureq = "2.9.7"
+dotenv = "0.15.0"
