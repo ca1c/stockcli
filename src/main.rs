@@ -1,4 +1,5 @@
 extern crate dotenv;
+extern crate cfonts;
 
 use dotenv::dotenv;
 use std::env;
@@ -8,6 +9,8 @@ use clap::Parser;
 // use ureq::{Error};
 use serde::{Deserialize, Serialize};
 use serde_json::Result as SerdeResult;
+use cfonts::{ say, Options, Fonts, Colors };
+use colored::Colorize;
 
 
 #[derive(Parser)]
@@ -51,7 +54,17 @@ fn main() {
         }
     };
 
-    println!("{}", stock_info);
+    match parse_response(&stock_info, &args.symbol) {
+        Ok(stock_quote_struct) => {
+            display_quote(&stock_quote_struct);
+        }
+        Err(err) => {
+            eprintln!("Error parsing response: {}", err);
+            return;
+        }
+    };
+
+    // display_quote(&stock_info);
 }
 
 fn init_env_vars() -> HashMap<String, String> {
@@ -73,9 +86,7 @@ fn get_stock_info(env_vars: &HashMap<String, String>, symbol: &String) -> Result
         .call()?
         .into_string()?;
     
-    let quote = parse_response(&response, symbol)?;
-
-    println!("quote: {}", quote.c);
+    // let quote = parse_response(&response, symbol)?;
 
     Ok(response)
 }
@@ -86,11 +97,29 @@ fn parse_response(json_response: &String, symbol: &String) -> SerdeResult<StockQ
 
     let combined_json_response = format!("{{\"symbol\":\"{}\",{}", (*symbol).clone(), copy_json_response);
 
-    println!("{}", combined_json_response);
-
     let parsed_response: StockQuote = serde_json::from_str(combined_json_response.as_str())?;
-    println!("{}", parsed_response.c);
 
     Ok(parsed_response)
+}
+
+fn display_quote(stock_quote: &StockQuote) {
+    say(Options {
+        text: stock_quote.symbol.clone(),
+        font: Fonts::FontBlock,
+        colors: vec![Colors::Green],
+        ..Options::default()
+    });
+
+    let change_operator = String::from("+");
+    let mut change_quote = format!("{}{} %{}", change_operator, stock_quote.d, f32::trunc(stock_quote.dp * 100.0) / 100.0).green();
+
+    if stock_quote.d < 0.0 {
+        change_quote = format!("{} %{}", stock_quote.d, f32::trunc(stock_quote.dp * 100.0) / 100.0).red();
+    }
+
+    println!("Market Price: ${}\n", stock_quote.c.to_string().blue());
+    println!("Change: {}\n", change_quote);
+    println!("High:${}  Low:${}\n", stock_quote.h.to_string().blue(), stock_quote.l.to_string().blue());
+    println!("Open:${} Prev Close:${}", stock_quote.o.to_string().blue(), stock_quote.pc.to_string().blue());
 }
 
