@@ -6,9 +6,7 @@ use std::env;
 use std::collections::HashMap;
 use anyhow::{Result};
 use clap::Parser;
-// use ureq::{Error};
 use serde::{Deserialize, Serialize};
-use serde_json::Result as SerdeResult;
 use serde_json::Value;
 use cfonts::{ say, Options, Fonts, Colors };
 use colored::Colorize;
@@ -18,6 +16,28 @@ use colored::Colorize;
 struct Cli {
     #[clap(long, short, action)]
     symbol: String,
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    dotenv().ok();
+
+    let args = Cli::parse();
+    let env_vars: HashMap<String, String> = init_env_vars()?;
+
+    let stock_info = get_stock_info(&env_vars, &args.symbol)?;
+
+    if &stock_info == "null" {
+        println!("cannot find this stock, so we did a search for it\n");
+
+        search(&env_vars, &args.symbol)?;
+    }
+    else {
+        let mut stock_quote: StockQuote = StockQuote::new();
+        stock_quote.parse_response(&stock_info, &args.symbol)?;
+        stock_quote.display_quote();
+    }
+
+    Ok(())
 }
 
 /*
@@ -42,48 +62,67 @@ struct StockQuote {
     pc: f32,
 }
 
-fn main() {
-    dotenv().ok();
-
-    let args = Cli::parse();
-    let env_vars = init_env_vars();
-
-    let stock_info = match get_stock_info(&env_vars, &args.symbol) {
-        Ok(data) => data,
-        Err(err) => {
-            eprintln!("Error: {}", err);
-            return;
+impl StockQuote {
+    pub fn new() -> Self {
+        StockQuote {
+            symbol: String::from("XXXXX"),
+            c: 0.0,
+            d: 0.0,
+            dp: 0.0,
+            h: 0.0,
+            l: 0.0,
+            o: 0.0,
+            pc: 0.0,
         }
-    };
-
-    if &stock_info == "null" {
-        println!("cannot find this stock, so we did a search for it\n");
-
-        let _ = search(&env_vars, &args.symbol);
-    }
-    else {
-        match parse_response(&stock_info, &args.symbol) {
-            Ok(stock_quote_struct) => {
-                display_quote(&stock_quote_struct);
-            }
-            Err(err) => {
-                eprintln!("Error parsing response: {}", err);
-                return;
-            }
-        };
     }
 
-    // display_quote(&stock_info);
+    fn display_quote(&self) {
+        say(Options {
+            text: self.symbol.clone(),
+            font: Fonts::FontBlock,
+            colors: vec![Colors::Green],
+            ..Options::default()
+        });
+    
+        let change_operator = String::from("+");
+        let mut change_quote = format!("{}{} %{}", change_operator, self.d, f32::trunc(self.dp * 100.0) / 100.0).green();
+    
+        if self.d < 0.0 {
+            change_quote = format!("{} %{}", self.d, f32::trunc(self.dp * 100.0) / 100.0).red();
+        }
+    
+        println!("Market Price: ${}\n", self.c.to_string().blue());
+        println!("Change: {}\n", change_quote);
+        println!("High:${}  Low:${}\n", self.h.to_string().blue(), self.l.to_string().blue());
+        println!("Open:${} Prev Close:${}", self.o.to_string().blue(), self.pc.to_string().blue());
+    }
+
+    fn parse_response(&mut self, json_response: &String, symbol: &String) -> Result<(), Box<dyn std::error::Error>> {
+        let mut copy_json_response = (*json_response).clone();
+        copy_json_response.remove(0);
+    
+        let combined_json_response = format!("{{\"symbol\":\"{}\",{}", (*symbol).clone(), copy_json_response);
+    
+        let parsed_response: StockQuote = serde_json::from_str(combined_json_response.as_str())?;
+
+        *self = parsed_response;
+
+        Ok(())
+    }
 }
 
-fn init_env_vars() -> HashMap<String, String> {
+fn init_env_vars() -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
     let mut env_vars = HashMap::new();
     
     for (var_key, env_var) in env::vars() {
         env_vars.insert(var_key.to_string(), env_var);
     }
 
-    env_vars
+    if !env_vars.contains_key("API_KEY") {
+        return Err("API_KEY was not found. Please add API_KEY environment variable in a .env file in CLI root".into());
+    }
+
+    Ok(env_vars)
 }
 
 fn get_stock_info(env_vars: &HashMap<String, String>, symbol: &String) -> Result<String, Box<dyn std::error::Error>> {
@@ -101,38 +140,6 @@ fn get_stock_info(env_vars: &HashMap<String, String>, symbol: &String) -> Result
     else {
         Ok(response)
     }
-}
-
-fn parse_response(json_response: &String, symbol: &String) -> SerdeResult<StockQuote> {
-    let mut copy_json_response = (*json_response).clone();
-    copy_json_response.remove(0);
-
-    let combined_json_response = format!("{{\"symbol\":\"{}\",{}", (*symbol).clone(), copy_json_response);
-
-    let parsed_response: StockQuote = serde_json::from_str(combined_json_response.as_str())?;
-
-    Ok(parsed_response)
-}
-
-fn display_quote(stock_quote: &StockQuote) {
-    say(Options {
-        text: stock_quote.symbol.clone(),
-        font: Fonts::FontBlock,
-        colors: vec![Colors::Green],
-        ..Options::default()
-    });
-
-    let change_operator = String::from("+");
-    let mut change_quote = format!("{}{} %{}", change_operator, stock_quote.d, f32::trunc(stock_quote.dp * 100.0) / 100.0).green();
-
-    if stock_quote.d < 0.0 {
-        change_quote = format!("{} %{}", stock_quote.d, f32::trunc(stock_quote.dp * 100.0) / 100.0).red();
-    }
-
-    println!("Market Price: ${}\n", stock_quote.c.to_string().blue());
-    println!("Change: {}\n", change_quote);
-    println!("High:${}  Low:${}\n", stock_quote.h.to_string().blue(), stock_quote.l.to_string().blue());
-    println!("Open:${} Prev Close:${}", stock_quote.o.to_string().blue(), stock_quote.pc.to_string().blue());
 }
 
 // if the symbol provided returns no quote then a search result list will be displayed 
