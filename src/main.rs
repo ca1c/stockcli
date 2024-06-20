@@ -9,12 +9,14 @@ use clap::Parser;
 // use ureq::{Error};
 use serde::{Deserialize, Serialize};
 use serde_json::Result as SerdeResult;
+use serde_json::Value;
 use cfonts::{ say, Options, Fonts, Colors };
 use colored::Colorize;
 
 
 #[derive(Parser)]
 struct Cli {
+    #[clap(long, short, action)]
     symbol: String,
 }
 
@@ -54,15 +56,22 @@ fn main() {
         }
     };
 
-    match parse_response(&stock_info, &args.symbol) {
-        Ok(stock_quote_struct) => {
-            display_quote(&stock_quote_struct);
-        }
-        Err(err) => {
-            eprintln!("Error parsing response: {}", err);
-            return;
-        }
-    };
+    if &stock_info == "null" {
+        println!("cannot find this stock, so we did a search for it\n");
+
+        let _ = search(&env_vars, &args.symbol);
+    }
+    else {
+        match parse_response(&stock_info, &args.symbol) {
+            Ok(stock_quote_struct) => {
+                display_quote(&stock_quote_struct);
+            }
+            Err(err) => {
+                eprintln!("Error parsing response: {}", err);
+                return;
+            }
+        };
+    }
 
     // display_quote(&stock_info);
 }
@@ -85,10 +94,13 @@ fn get_stock_info(env_vars: &HashMap<String, String>, symbol: &String) -> Result
     let response: String = ureq::get(url.as_str())
         .call()?
         .into_string()?;
-    
-    // let quote = parse_response(&response, symbol)?;
 
-    Ok(response)
+    if response.contains("null") {
+        Ok(String::from("null"))
+    }
+    else {
+        Ok(response)
+    }
 }
 
 fn parse_response(json_response: &String, symbol: &String) -> SerdeResult<StockQuote> {
@@ -121,5 +133,29 @@ fn display_quote(stock_quote: &StockQuote) {
     println!("Change: {}\n", change_quote);
     println!("High:${}  Low:${}\n", stock_quote.h.to_string().blue(), stock_quote.l.to_string().blue());
     println!("Open:${} Prev Close:${}", stock_quote.o.to_string().blue(), stock_quote.pc.to_string().blue());
+}
+
+// if the symbol provided returns no quote then a search result list will be displayed 
+fn search(env_vars: &HashMap<String, String>, symbol: &String) -> Result<()> {
+    let token_value = env_vars.get("API_KEY").unwrap();
+
+    let url = format!("https://finnhub.io/api/v1/search?q={}&token={}", symbol, token_value);
+
+    let response: String = ureq::get(url.as_str())
+        .call()?
+        .into_string()?;
+
+    let search_json: Value = serde_json::from_str(response.as_str())?;
+
+    let search_results: usize = search_json["count"].to_string().parse().unwrap();
+
+    println!("Search results: {}", search_results);
+
+    for i in 0..=search_results-1 {
+        let curr_el = &search_json["result"][i];
+        println!("Symbol: {} Description: {} Type: {}", curr_el["symbol"], curr_el["description"], curr_el["type"])
+    }
+
+    Ok(())
 }
 
